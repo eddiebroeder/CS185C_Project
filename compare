@@ -2,6 +2,7 @@
 use strict;
 use warnings;
 
+use Getopt::Long;
 use Data::Dumper;
 
 my $STAFF_FILE      = "data/cbedsora12a.txt";
@@ -10,133 +11,205 @@ my $SCORES_FILE     = "data/ca2013_1/ca2013_1_csv_v3.txt";
 my $ENROLLMENT_FILE = "data/EnrEthData.tsd";
 my $API_FILE        = "data/api13gdb.csv";
 
+my @fields = qw(school district enrollmentTotal zipcode city latitude longitude fundingType openedData closedDate percentTested percentAdvanced percentProficient percentProficientOrAbove percentBasic percentBelowBasic percentFarBelowBasic averageClassSizeKto3 averageClassSize4to6 averageParentEducation percentFullCredentialedTeachers percentEmergencyCredentialedTeachers);
+
 my %data;
 
+my ($printFields, $help, $plot, $dump);
+GetOptions("fields|f"  =>  \$printFields,
+           "plot|p=s"  =>  \$plot,
+           "dump|d"    =>  \$dump,
+           "help|h"    =>  \$help);
+exit &usage if $help;
+exit &printFields if $printFields;
 
-open (FH, "<", $SCHOOLS_FILE);
-while (<FH>) {
-    next unless /^\d+/;
-    chomp;
-    s/\r//g;
-    my @line = split(/,/, $_);
-    my $cdsCode = $line[0];
-    $data{$cdsCode}{zipcode}      = $line[10];
-    $data{$cdsCode}{city}         = $line[9];
-    $data{$cdsCode}{latitude}     = $line[36];
-    $data{$cdsCode}{longitude}    = $line[37];
-    $data{$cdsCode}{fundingType}  = $line[24];
-    $data{$cdsCode}{openDate}     = $line[20];
-    $data{$cdsCode}{closeDate}    = $line[21];
-    $data{$cdsCode}{dataRows}++;
+#---<MAIN>---------------------------------------------------------------------
 
-# CDSCode,NCESDist,NCESSchool,StatusType,County,District,School,Street,StreetAbr,City,Zip,State,MailStreet,MailStrAbr,MailCity,MailZip,MailState,Phone,Ext,WebSite,OpenDate,ClosedDate,Charter,CharterNum,FundingType,DOC,DOCType,SOC,SOCType,EdOpsCode,EdOpsName,EILCode,EILName,GSoffered,GSserved,Virtual,Magnet,Latitude,Longitude,AdmFName1,AdmLName1,AdmEmail1,AdmFName2,AdmLName2,AdmEmail2,AdmFName3,AdmLName3,AdmEmail3,LastUpDate
+&readData();
+&plotFields if $plot;
+&printDump if $dump;
 
+
+#---<SUBROUTINES>--------------------------------------------------------------
+sub readData() {
+
+    open (FH, "<", $SCHOOLS_FILE);
+    while (<FH>) {
+        next unless /^\d+/;
+        chomp;
+        s/\r//g;
+        my @line = split(/,/, $_);
+        my $cdsCode = $line[0];
+        $data{$cdsCode}{zipcode}      = $line[10];
+        $data{$cdsCode}{city}         = $line[9];
+        $data{$cdsCode}{latitude}     = $line[37];
+        $data{$cdsCode}{longitude}    = $line[38];
+        $data{$cdsCode}{fundingType}  = $line[24];
+        $data{$cdsCode}{openedDate}     = $line[20];
+        $data{$cdsCode}{closedDate}    = $line[21];
+        $data{$cdsCode}{dataRows}++;
+
+    # CDSCode,NCESDist,NCESSchool,StatusType,County,District,School,Street,StreetAbr,City,Zip,State,MailStreet,MailStrAbr,MailCity,MailZip,MailState,Phone,Ext,WebSite,OpenDate,ClosedDate,Charter,CharterNum,FundingType,DOC,DOCType,SOC,SOCType,EdOpsCode,EdOpsName,EILCode,EILName,GSoffered,GSserved,Virtual,Magnet,Latitude,Longitude,AdmFName1,AdmLName1,AdmEmail1,AdmFName2,AdmLName2,AdmEmail2,AdmFName3,AdmLName3,AdmEmail3,LastUpDate
+
+    }
+    close (FH);
+
+
+    open (FH, "<", $SCORES_FILE);
+    while (<FH>) {
+        s/"//g;
+        next unless /^\d+/;
+        chomp;
+        s/\r//g;
+        my @line = split(/,/, $_);
+        my $cdsCode = $line[0] . $line[1] . $line[2];
+        $data{$cdsCode}{dataRows}++;
+
+        $data{$cdsCode}{percentTested}            = $line[15];
+        $data{$cdsCode}{percentAdvanced}          = $line[17];
+        $data{$cdsCode}{percentProficient}        = $line[18];
+        $data{$cdsCode}{percentProficientOrAbove} = $line[19];
+        $data{$cdsCode}{percentBasic}             = $line[20];
+        $data{$cdsCode}{percentBelowBasic}        = $line[21];
+        $data{$cdsCode}{percentFarBelowBasic}     = $line[22];
+        #$data{$cdsCode}{studentsWithScores}       = $line[22]; #XXX not sure about this one, doesn't seem to make sense
+
+    # "County Code","District Code","School Code","Charter Number","Test Year","Subgroup ID","Test Type","CAPA Assessment Level","Total STAR Enrollment","Total Tested At Entity Level","Total Tested At Subgroup Level","Grade","Test Id","STAR Reported Enrollment/CAPA Eligible","Students Tested","Percent Tested","Mean Scale Score","Percentage Advanced","Percentage Proficient","Percentage At Or Above Proficient","Percentage Basic","Percentage Below Basic","Percentage Far Below Basic","Students with Scores"
+
+    }
+    close (FH);
+
+    open (FH, "<", $ENROLLMENT_FILE);
+    while (<FH>) {
+        next unless /^\d+/;
+        chomp;
+        s/\r//g;
+        my ($cdsCode, $school, $district, $ethnic, $gender, $enrollmentCount) = split(/;/, $_);
+        $data{$cdsCode}{dataRows}++;
+        $data{$cdsCode}{school}                         = $school;
+        $data{$cdsCode}{district}                       = $district;
+        $data{$cdsCode}{studentDemographics}{$ethnic}{$gender} = $enrollmentCount;
+        $data{$cdsCode}{enrollmentTotal}               += $enrollmentCount;
+
+    # CDS;School;District;Ethnic;Gender;Enrollment
+
+    }
+    close (FH);
+
+
+    open (FH, "<", $STAFF_FILE);
+    while (<FH>) {
+        next unless /^\d+/;
+        chomp;
+        s/\r//g;
+        my @line = split(/,/, $_);
+        my $cdsCode = $line[0];
+        $data{$cdsCode}{dataRows}++;
+
+        $data{$cdsCode}{staffDemographics}{americanIndian}{M}     = $line[8];
+        $data{$cdsCode}{staffDemographics}{asian}{M}              = $line[9];
+        $data{$cdsCode}{staffDemographics}{pacificIslander}{M}    = $line[10];
+        $data{$cdsCode}{staffDemographics}{filipino}{M}           = $line[11];
+        $data{$cdsCode}{staffDemographics}{hispanic}{M}           = $line[12];
+        $data{$cdsCode}{staffDemographics}{africanAmerican}{M}    = $line[13];
+        $data{$cdsCode}{staffDemographics}{white}{M}              = $line[14];
+        $data{$cdsCode}{staffDemographics}{multorNoResp}{M}       = $line[15];
+        $data{$cdsCode}{staffDemographics}{americanIndian}{F}     = $line[16];
+        $data{$cdsCode}{staffDemographics}{asian}{F}              = $line[17];
+        $data{$cdsCode}{staffDemographics}{pacificIslander}{F}    = $line[18];
+        $data{$cdsCode}{staffDemographics}{filipino}{F}           = $line[19];
+        $data{$cdsCode}{staffDemographics}{hispanic}{F}           = $line[20];
+        $data{$cdsCode}{staffDemographics}{africanAmerican}{F}    = $line[21];
+        $data{$cdsCode}{staffDemographics}{white}{F}              = $line[22];
+        $data{$cdsCode}{staffDemographics}{multorNoResp}{F}       = $line[23];
+        $data{$cdsCode}{staffDemographics}{total}                 = $line[24];
+        $data{$cdsCode}{staffDemographics}{year}                  = $line[25];
+
+    # CdsCode,CountyName,DistrictName,SchoolName,Description,Level,Section,RowNumber,AmericanIndianMale,AsianMale,PacificIslanderMale,FilipinoMale,HispanicMale,AfricanAmericanMale,WhiteMale,MultorNoRespMale,AmericanIndianFemale,AsianFemale,PacificIslanderFemale,FilipinoFemale,HispanicFemale,AfricanAmericanFemale,WhiteFemale,MultorNoRespFemale,Total,Year
+
+    }
+    close (FH);
+
+
+    open (FH, "<", $API_FILE);
+    while (<FH>) {
+        next unless /^\d+/;
+        chomp;
+        s/\r//g;
+        my @line = split(/,/, $_);
+        my $cdsCode = $line[0];
+        $data{$cdsCode}{dataRows}++;
+
+        $data{$cdsCode}{averageClassSizeKto3}                 = $line[112];
+        $data{$cdsCode}{averageClassSize4to6}                 = $line[113];
+        $data{$cdsCode}{averageParentEducation}               = $line[121];
+        $data{$cdsCode}{percentFullCredentialedTeachers}      = $line[122];
+        $data{$cdsCode}{percentEmergencyCredentialedTeachers} = $line[123];
+    }
+    close (FH);
 }
-close (FH);
+
+sub printDump() {
 
 
-open (FH, "<", $SCORES_FILE);
-while (<FH>) {
-    s/"//g;
-    next unless /^\d+/;
-    chomp;
-    s/\r//g;
-    my @line = split(/,/, $_);
-    my $cdsCode = $line[0] . $line[1] . $line[2];
-    $data{$cdsCode}{dataRows}++;
-       
-    $data{$cdsCode}{percentTested}            = $line[15];
-    $data{$cdsCode}{percentAdvanced}          = $line[17];
-    $data{$cdsCode}{percentProficient}        = $line[18];
-    $data{$cdsCode}{percentProficientOrAbove} = $line[19];
-    $data{$cdsCode}{percentBasic}             = $line[20];
-    $data{$cdsCode}{percentBelowBasic}        = $line[21];
-    $data{$cdsCode}{percentFarBelowBasic}     = $line[22];
-    #$data{$cdsCode}{studentsWithScores}       = $line[22]; #XXX not sure about this one, doesn't seem to make sense
-
-# "County Code","District Code","School Code","Charter Number","Test Year","Subgroup ID","Test Type","CAPA Assessment Level","Total STAR Enrollment","Total Tested At Entity Level","Total Tested At Subgroup Level","Grade","Test Id","STAR Reported Enrollment/CAPA Eligible","Students Tested","Percent Tested","Mean Scale Score","Percentage Advanced","Percentage Proficient","Percentage At Or Above Proficient","Percentage Basic","Percentage Below Basic","Percentage Far Below Basic","Students with Scores"
-
-}
-close (FH);
-
-open (FH, "<", $ENROLLMENT_FILE);
-while (<FH>) {
-    next unless /^\d+/;
-    chomp;
-    s/\r//g;
-    my ($cdsCode, $school, $district, $ethnic, $gender, $enrollmentCount) = split(/;/, $_);
-    $data{$cdsCode}{dataRows}++;
-    $data{$cdsCode}{school}                         = $school;
-    $data{$cdsCode}{district}                       = $district;
-    $data{$cdsCode}{studentDemographics}{$ethnic}{$gender} = $enrollmentCount;
-    $data{$cdsCode}{enrollmentTotal}               += $enrollmentCount;
-
-# CDS;School;District;Ethnic;Gender;Enrollment
-
-}
-close (FH);
-
-
-open (FH, "<", $STAFF_FILE);
-while (<FH>) {
-    next unless /^\d+/;
-    chomp;
-    s/\r//g;
-    my @line = split(/,/, $_);
-    my $cdsCode = $line[0];
-    $data{$cdsCode}{dataRows}++;
-
-    $data{$cdsCode}{staffDemographics}{americanIndian}{M }    = $line[8];
-    $data{$cdsCode}{staffDemographics}{asian}{M}              = $line[9];
-    $data{$cdsCode}{staffDemographics}{pacificIslander}{M}    = $line[10];
-    $data{$cdsCode}{staffDemographics}{filipino}{M}           = $line[11];
-    $data{$cdsCode}{staffDemographics}{hispanic}{M}           = $line[12];
-    $data{$cdsCode}{staffDemographics}{africanAmerican}{M}    = $line[13];
-    $data{$cdsCode}{staffDemographics}{white}{M}              = $line[14];
-    $data{$cdsCode}{staffDemographics}{multorNoResp}{M}       = $line[15];
-    $data{$cdsCode}{staffDemographics}{americanIndian}{F}     = $line[16];
-    $data{$cdsCode}{staffDemographics}{asian}{F}              = $line[17];
-    $data{$cdsCode}{staffDemographics}{pacificIslander}{F}    = $line[18];
-    $data{$cdsCode}{staffDemographics}{filipino}{F}           = $line[19];
-    $data{$cdsCode}{staffDemographics}{hispanic}{F}           = $line[20];
-    $data{$cdsCode}{staffDemographics}{africanAmerican}{F}    = $line[21];
-    $data{$cdsCode}{staffDemographics}{white}{F}              = $line[22];
-    $data{$cdsCode}{staffDemographics}{multorNoResp}{F}       = $line[23];
-    $data{$cdsCode}{staffDemographics}{total}                 = $line[24];
-    $data{$cdsCode}{staffDemographics}{year}                  = $line[25];
-
-# CdsCode,CountyName,DistrictName,SchoolName,Description,Level,Section,RowNumber,AmericanIndianMale,AsianMale,PacificIslanderMale,FilipinoMale,HispanicMale,AfricanAmericanMale,WhiteMale,MultorNoRespMale,AmericanIndianFemale,AsianFemale,PacificIslanderFemale,FilipinoFemale,HispanicFemale,AfricanAmericanFemale,WhiteFemale,MultorNoRespFemale,Total,Year
-
-}
-close (FH);
-
-
-open (FH, "<", $API_FILE);
-while (<FH>) {
-    next unless /^\d+/;
-    chomp;
-    s/\r//g;
-    my @line = split(/,/, $_);
-    my $cdsCode = $line[0];
-    $data{$cdsCode}{dataRows}++;
-
-    $data{$cdsCode}{averageClassSizeKto3}                 = $line[112];
-    $data{$cdsCode}{averageClassSize4to6}                 = $line[113];
-    $data{$cdsCode}{averageParentEducation}               = $line[121];
-    $data{$cdsCode}{percentFullCredentialedTeachers}      = $line[122];
-    $data{$cdsCode}{percentEmergencyCredentialedTeachers} = $line[123];
-}
-close (FH);
-
-
-
-OUTER:
-for my $cdsCode (keys %data) {
-    if ($data{$cdsCode}{dataRows} > 1) {
-        for my $key (keys %{$data{$cdsCode}}) {
-            next OUTER if $data{$cdsCode}{$key} =~ /^\s*$|\*/;
+    OUTER:
+    for my $cdsCode (keys %data) {
+        if ($data{$cdsCode}{dataRows} > 1) {
+            for my $key (keys %{$data{$cdsCode}}) {
+                next OUTER if $data{$cdsCode}{$key} =~ /^\s*$|\*/;
+            }
+            print "CDS_Code: $cdsCode\n";
+            print Dumper(\$data{$cdsCode});
         }
-        print "$cdsCode\n";
-        print Dumper($data{$cdsCode});
     }
 }
+
+sub plotFields() {
+
+    chomp $plot;
+    $plot =~ s/\s+//g;
+    my ($field1, $field2) = split(/,/, $plot);
+
+    open (FH, ">", "plot1");
+    OUTER:
+    for my $cdsCode (keys %data) {
+        if ($data{$cdsCode}{dataRows} > 1) {
+            for my $key (keys %{$data{$cdsCode}}) {
+                next OUTER if $data{$cdsCode}{$key} =~ /^\s*$|\*/;
+            }
+            my $lineToPrint = "$data{$cdsCode}{$field1} $data{$cdsCode}{$field2}\n";
+            # sanitize data
+            print FH "$lineToPrint\n" if $lineToPrint =~ /^[\w.]+\s+[\w.]+$/;
+        }
+    }
+    close (FH);
+    my $plotCommand = "gnuplot -p -e \"set xlabel '$field1'; set ylabel '$field2'; plot 'plot1' with boxes\"";
+    print "Running: $plotCommand\n";
+    system($plotCommand);
+}
+
+sub printFields() {
+    print "\nFields collected:\n\n";
+    for my $field (@fields) {
+        print "$field\n";
+    }
+    print "\n";
+}
+
+
+sub usage() {
+
+print <<EOM
+Usage: compare [OPTION]...
+Read data from various educational data files and present user-specified results and charts
+
+    -p, --plot  <fields>       plot the listed (comma separated) fields on a scatterplot
+    -d, --dump                 print a full dump of the data
+    -f, --fields               display a list of all fields collected
+    -h, --help                 print this help and exit
+
+EOM
+
+
+}
+
