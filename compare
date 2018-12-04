@@ -11,16 +11,18 @@ my $SCORES_FILE     = "data/ca2013_1/ca2013_1_csv_v3.txt";
 my $ENROLLMENT_FILE = "data/EnrEthData.tsd";
 my $API_FILE        = "data/api13gdb.csv";
 
-my @fields = qw(school district enrollmentTotal zipcode city latitude longitude fundingType openedData closedDate percentTested percentAdvanced percentProficient percentProficientOrAbove percentBasic percentBelowBasic percentFarBelowBasic averageClassSizeKto3 averageClassSize4to6 averageParentEducation percentFullCredentialedTeachers percentEmergencyCredentialedTeachers);
+my @fields = qw(school district enrollmentTotal zipcode city latitude longitude fundingType openedData closedDate percentTested percentAdvanced percentProficient percentProficientOrAbove percentBasic percentBelowBasic percentFarBelowBasic averageClassSizeKto3 averageClassSize4to6 averageParentEducation percentFullCredentialedTeachers percentEmergencyCredentialedTeachers apiGrowth metSchoolApiGrowthTarget cstScoreEnglish2to8 cstScoreEnglish9to11);
+my @starScoreFields = qw(percentTested percentAdvanced percentProficient percentProficientOrAbove percentBasic percentBelowBasic percentFarBelowBasic);
 
 my %data;
 
-my ($printFields, $help, $plot, $dump);
+my ($printFields, $help, $plot, $dump, $type);
 GetOptions("fields|f"  =>  \$printFields,
            "plot|p=s"  =>  \$plot,
+           "type|t=s"  =>  \$type,
            "dump|d"    =>  \$dump,
            "help|h"    =>  \$help);
-exit &usage if $help;
+exit &usage if ($help || (!$printFields && !$plot && !$dump));
 exit &printFields if $printFields;
 
 #---<MAIN>---------------------------------------------------------------------
@@ -145,13 +147,19 @@ sub readData() {
         $data{$cdsCode}{averageParentEducation}               = $line[121];
         $data{$cdsCode}{percentFullCredentialedTeachers}      = $line[122];
         $data{$cdsCode}{percentEmergencyCredentialedTeachers} = $line[123];
+
+        $data{$cdsCode}{apiGrowth}                            = $line[11];
+        $data{$cdsCode}{metSchoolApiGrowthTarget}             = $line[15];
+        $data{$cdsCode}{cstScoreEnglish2to8}                  = $line[134];
+        $data{$cdsCode}{cstScoreEnglish9to11}                 = $line[136];
+
+
+
     }
     close (FH);
 }
 
 sub printDump() {
-
-
     OUTER:
     for my $cdsCode (keys %data) {
         if ($data{$cdsCode}{dataRows} > 1) {
@@ -165,25 +173,32 @@ sub printDump() {
 }
 
 sub plotFields() {
-
     chomp $plot;
     $plot =~ s/\s+//g;
     my ($field1, $field2) = split(/,/, $plot);
-
+    my $plotType = "boxes";
+    if ($type) {
+        $plotType = "points" if $type =~ /scatter/;
+    }
     open (FH, ">", "plot1");
     OUTER:
     for my $cdsCode (keys %data) {
         if ($data{$cdsCode}{dataRows} > 1) {
-            for my $key (keys %{$data{$cdsCode}}) {
-                next OUTER if $data{$cdsCode}{$key} =~ /^\s*$|\*/;
+            if (grep(/$field1/, @starScoreFields) || grep(/$field2/, @starScoreFields)) {
+                for my $key (keys %{$data{$cdsCode}}) {
+                    if (!$data{$cdsCode}{$key} || $data{$cdsCode}{$key} =~ /^\s*$|\*/) {
+                        next OUTER;
+                    }
+                }
             }
-            my $lineToPrint = "$data{$cdsCode}{$field1} $data{$cdsCode}{$field2}\n";
-            # sanitize data
-            print FH "$lineToPrint\n" if $lineToPrint =~ /^[\w.]+\s+[\w.]+$/;
+            if ($data{$cdsCode}{$field1} && $data{$cdsCode}{$field2}) {
+                my $lineToPrint = "$data{$cdsCode}{$field1} $data{$cdsCode}{$field2}\n";
+                print FH "$lineToPrint\n" if $lineToPrint =~ /^[\w.]+\s+[\w.]+$/; # sanitize data
+            }
         }
     }
     close (FH);
-    my $plotCommand = "gnuplot -p -e \"set xlabel '$field1'; set ylabel '$field2'; plot 'plot1' with boxes\"";
+    my $plotCommand = "gnuplot -p -e \"set xlabel '$field1'; set ylabel '$field2'; plot 'plot1' with $plotType\"";
     print "Running: $plotCommand\n";
     system($plotCommand);
 }
@@ -204,6 +219,7 @@ Usage: compare [OPTION]...
 Read data from various educational data files and present user-specified results and charts
 
     -p, --plot  <fields>       plot the listed (comma separated) fields on a scatterplot
+    -t, --type  <type>         the type of plot. options are (bar, scatter) DEFAULT: bar
     -d, --dump                 print a full dump of the data
     -f, --fields               display a list of all fields collected
     -h, --help                 print this help and exit
