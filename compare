@@ -3,6 +3,7 @@ use strict;
 use warnings;
 
 use Getopt::Long;
+use Storable;
 use Data::Dumper;
 
 my $STAFF_FILE      = "data/cbedsora12a.txt";
@@ -11,16 +12,20 @@ my $SCORES_FILE     = "data/ca2013_1/ca2013_1_csv_v3.txt";
 my $ENROLLMENT_FILE = "data/EnrEthData.tsd";
 my $API_FILE        = "data/api13gdb.csv";
 
-my @fields = qw(school district enrollmentTotal zipcode city latitude longitude fundingType openedData closedDate percentTested percentAdvanced percentProficient percentProficientOrAbove percentBasic percentBelowBasic percentFarBelowBasic averageClassSizeKto3 averageClassSize4to6 averageParentEducation percentFullCredentialedTeachers percentEmergencyCredentialedTeachers apiGrowth metSchoolApiGrowthTarget cstScoreEnglish2to8 cstScoreEnglish9to11);
+my $CACHE_FILE      = "datacache";
+
+my @fields = qw(school district enrollmentTotal zipcode city latitude longitude fundingType openedData closedDate percentTested percentAdvanced percentProficient percentProficientOrAbove percentBasic percentBelowBasic percentFarBelowBasic averageClassSizeKto3 averageClassSize4to6 averageParentEducation percentFullCredentialedTeachers percentEmergencyCredentialedTeachers apiGrowth apiBase metSchoolApiGrowthTarget cstScoreEnglish2to8 cstScoreEnglish9to11);
 my @starScoreFields = qw(percentTested percentAdvanced percentProficient percentProficientOrAbove percentBasic percentBelowBasic percentFarBelowBasic);
 
 my %data;
 
-my ($printFields, $help, $plot, $dump, $type);
+my ($printFields, $help, $plot, $dump, $type, $fresh, $verbose);
 GetOptions("fields|f"  =>  \$printFields,
            "plot|p=s"  =>  \$plot,
            "type|t=s"  =>  \$type,
+           "fresh"     =>  \$fresh,
            "dump|d"    =>  \$dump,
+           "verbose|v" =>  \$verbose,
            "help|h"    =>  \$help);
 exit &usage if ($help || (!$printFields && !$plot && !$dump));
 exit &printFields if $printFields;
@@ -34,6 +39,15 @@ exit &printFields if $printFields;
 
 #---<SUBROUTINES>--------------------------------------------------------------
 sub readData() {
+
+    if (-e $CACHE_FILE && !$fresh) {
+        print "Retrieving data from cache file\n" if $verbose;
+        %data = %{retrieve($CACHE_FILE)};
+        return;
+    }
+    else {
+        print "Retrieving fresh data from files\n" if $verbose;
+    }
 
     open (FH, "<", $SCHOOLS_FILE);
     while (<FH>) {
@@ -149,6 +163,7 @@ sub readData() {
         $data{$cdsCode}{percentEmergencyCredentialedTeachers} = $line[123];
 
         $data{$cdsCode}{apiGrowth}                            = $line[11];
+        $data{$cdsCode}{apiBase}                              = $line[12];
         $data{$cdsCode}{metSchoolApiGrowthTarget}             = $line[15];
         $data{$cdsCode}{cstScoreEnglish2to8}                  = $line[134];
         $data{$cdsCode}{cstScoreEnglish9to11}                 = $line[136];
@@ -157,6 +172,8 @@ sub readData() {
 
     }
     close (FH);
+    print "Storing data in cache file\n" if $verbose;
+    store(\%data, $CACHE_FILE);
 }
 
 sub printDump() {
@@ -164,7 +181,9 @@ sub printDump() {
     for my $cdsCode (keys %data) {
         if ($data{$cdsCode}{dataRows} > 1) {
             for my $key (keys %{$data{$cdsCode}}) {
-                next OUTER if $data{$cdsCode}{$key} =~ /^\s*$|\*/;
+                if (!$data{$cdsCode}{$key} || $data{$cdsCode}{$key} =~ /^\s*$|\*/) {
+                    next OUTER;
+                }
             }
             print "CDS_Code: $cdsCode\n";
             print Dumper(\$data{$cdsCode});
@@ -193,13 +212,13 @@ sub plotFields() {
             }
             if ($data{$cdsCode}{$field1} && $data{$cdsCode}{$field2}) {
                 my $lineToPrint = "$data{$cdsCode}{$field1} $data{$cdsCode}{$field2}\n";
-                print FH "$lineToPrint\n" if $lineToPrint =~ /^[\w.]+\s+[\w.]+$/; # sanitize data
+                print FH "$lineToPrint\n" if $lineToPrint =~ /^[\d.]+\s+[\d.]+$/; # sanitize data
             }
         }
     }
     close (FH);
     my $plotCommand = "gnuplot -p -e \"set xlabel '$field1'; set ylabel '$field2'; plot 'plot1' with $plotType\"";
-    print "Running: $plotCommand\n";
+    print "Running: $plotCommand\n" if $verbose;
     system($plotCommand);
 }
 
@@ -218,11 +237,20 @@ print <<EOM
 Usage: compare [OPTION]...
 Read data from various educational data files and present user-specified results and charts
 
-    -p, --plot  <fields>       plot the listed (comma separated) fields on a scatterplot
-    -t, --type  <type>         the type of plot. options are (bar, scatter) DEFAULT: bar
-    -d, --dump                 print a full dump of the data
-    -f, --fields               display a list of all fields collected
-    -h, --help                 print this help and exit
+
+    --plot,    -p  <x,y>   plot the listed (comma separated) fields on a scatterplot or bar chart
+
+    --type,    -t  <type>  the type of plot. options are (bar, scatter) DEFAULT: bar
+
+    --dump,    -d          print a full dump of the data
+
+    --fields,  -f          display a list of all fields collected
+
+    --fresh                don't read from cache file, but re-read original data files
+
+    --verbose, -v          print verbose information
+
+    --help,    -h          print this help and exit
 
 EOM
 
